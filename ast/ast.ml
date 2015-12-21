@@ -12,7 +12,7 @@ and exp =
 	| StringExp of string
 	| CallExp of string * exp list
 	| OpExp of exp * oper * exp
-	| RecordExp of string * field list
+	| RecordExp of string * recordField list
 	| SeqExp of exp list
 	| AssignExp of var * exp
 	| IfExp of ifExp
@@ -29,17 +29,19 @@ and dec =
 
 and ty =
 	| NameTy of string
-	| RecordTy of tyField list
+	| RecordTy of recordTyField list
 	| ArrayTy of string
 
 and oper =
-	| PlusOp | MinusOp | MultOp | DivOp | EqOp | NeqOp | LtOp | LtEqOp | GtOp | GtEqOp | And | Or
+	| Plus | Minus | Mult | Div | Eq | Neq | Lt | LtEq | Gt | GtEq | And | Or
 
-and tyField = {name: string; escape: bool ref; typ: string}
+and recordTyField = {name: string; typ: string}
 
-and field = {name: string; escape: bool ref; value: exp}
+and formalParam = {name: string; escape: bool ref; typ: string}
 
-and fundec = {name: string; params: tyField list; result: string option; body: exp}
+and recordField = {name: string; escape: bool ref; value: exp}
+
+and fundec = {name: string; params: formalParam list; result: string option; body: exp}
 
 and ifExp = {test: exp; then': exp; else': exp option}
 

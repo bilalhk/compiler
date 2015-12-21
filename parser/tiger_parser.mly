@@ -31,6 +31,21 @@
 %token LET IN END
 %token EOF
 
+%right IF THEN ELSE
+
+%right DO
+
+%right OF
+
+%nonassoc Id
+%right LEFT_BRACKET
+
+%right ASSIGNMENT_OP
+%left AND OR
+%right EQUALS NOT_EQUALS LESS_THAN GREATER_THAN GREATER_THAN_EQUALS LESS_THAN_EQUALS
+%left PLUS MINUS
+%left MULT DIV
+
 %start prog
 %type <(Ast.exp)> prog
 
@@ -44,8 +59,8 @@ dec:
 	| TYPE Id EQUALS ty {Ast.TypeDec($2, $4)} /* Type Declaration */
 	| VAR Id ASSIGNMENT_OP exp {Ast.VarDec({name = $2; escape = ref false; typ = None; init = $4})} /* Variable Declaration */
 	| VAR Id COLON Id ASSIGNMENT_OP exp {Ast.VarDec({name = $2; escape = ref false; typ = Some $4; init = $6})} /* Variable Declaration With Type */
-	| FUNCTION Id LEFT_PAREN tyFields RIGHT_PAREN EQUALS exp {Ast.FunctionDec({name = $2; params = $4; result = None; body = $7})} /* Function Declaration */
-	| FUNCTION Id LEFT_PAREN tyFields RIGHT_PAREN COLON Id EQUALS exp {Ast.FunctionDec({name = $2; params = $4; result = Some $7; body = $9})} /* Function Declaration With Return Type */
+	| FUNCTION Id LEFT_PAREN formalParamList RIGHT_PAREN EQUALS exp {Ast.FunctionDec({name = $2; params = $4; result = None; body = $7})} /* Function Declaration */
+	| FUNCTION Id LEFT_PAREN formalParamList RIGHT_PAREN COLON Id EQUALS exp {Ast.FunctionDec({name = $2; params = $4; result = Some $7; body = $9})} /* Function Declaration With Return Type */
 ;
 
 exp:
@@ -59,8 +74,22 @@ exp:
 	| String_literal {Ast.StringExp($1)} /* String Expression */
 	| Id LEFT_PAREN paramList RIGHT_PAREN {Ast.CallExp($1, $3)} /* Function Application With Params */
 	| Id LEFT_PAREN RIGHT_PAREN {Ast.CallExp($1, [])} /* Function Application With No Params*/
-	| exp oper exp {Ast.OpExp($1, $2, $3)} /* Operator Expression */
-	| Id LEFT_BRACE fieldList RIGHT_BRACE {Ast.RecordExp($1, $3)} /* Record Creation Expression*/
+	
+	/* Operator Expressions */
+	| exp PLUS exp {Ast.OpExp($1, Ast.Plus, $3)}
+	| exp MINUS exp {Ast.OpExp($1, Ast.Minus, $3)}
+	| exp MULT exp {Ast.OpExp($1, Ast.Mult, $3)}
+	| exp DIV exp {Ast.OpExp($1, Ast.Div, $3)}
+	| exp AND exp {Ast.OpExp($1, Ast.And, $3)}
+	| exp OR exp {Ast.OpExp($1, Ast.Or, $3)}
+	| exp EQUALS exp {Ast.OpExp($1, Ast.Eq, $3)}
+	| exp NOT_EQUALS exp {Ast.OpExp($1, Ast.Neq, $3)}
+	| exp LESS_THAN exp {Ast.OpExp($1, Ast.Lt, $3)}
+	| exp GREATER_THAN exp {Ast.OpExp($1, Ast.Gt, $3)}
+	| exp GREATER_THAN_EQUALS exp {Ast.OpExp($1, Ast.GtEq, $3)}
+	| exp LESS_THAN_EQUALS exp {Ast.OpExp($1, Ast.LtEq, $3)}
+
+	| Id LEFT_BRACE recordFieldList RIGHT_BRACE {Ast.RecordExp($1, $3)} /* Record Creation Expression*/
 	| Id LEFT_BRACE RIGHT_BRACE {Ast.RecordExp($1, [])} /* Empty Record Creation */
 	| IF exp THEN exp ELSE exp {Ast.IfExp({test = $2; then' = $4; else' = Some $6})} /* If-Then-Else Expression */
 	| IF exp THEN exp {Ast.IfExp({test = $2; then' = $4; else' = None})} /* If-Then Expression */
@@ -70,20 +99,28 @@ exp:
 	| Id LEFT_BRACKET exp RIGHT_BRACKET OF exp {Ast.ArrayExp({typ = $1; size = $3; init = $6})} /* Array Creation Expression */
 ;
 
+formalParamList:
+	| {[]}
+	| formalParam {$1::[]}
+	| formalParam COMMA formalParamList {$1::$3}
+
+formalParam:
+	| Id COLON Id {{name = $1; escape = ref false; typ = $3}}
+
 ty:
 	| Id {Ast.NameTy($1)} /* Simple Type Variable */
-	| LEFT_BRACE tyFields RIGHT_BRACE {Ast.RecordTy($2)} /* Record Type */
+	| LEFT_BRACE recordTyFieldList RIGHT_BRACE {Ast.RecordTy($2)} /* Record Type */
 	| ARRAY OF Id {Ast.ArrayTy($3)} /* Array Type */
 ;
 
-tyField:
-	| Id COLON Id {{name = $1; escape = ref false; typ = $3}}
+recordTyField:
+	| Id COLON Id {{name = $1; typ = $3}}
 ;
 
-tyFields:
+recordTyFieldList:
 	| {[]}
-	| tyField {$1::[]}
-	| tyField COMMA tyFields {$1::$3}
+	| recordTyField {$1::[]}
+	| recordTyField COMMA recordTyFieldList {$1::$3}
 ;
 
 exprList:
@@ -107,25 +144,11 @@ lvalue:
 	| lvalue LEFT_BRACKET exp RIGHT_BRACKET {Ast.SubscriptVar($1, $3)} /* Array Subscript Variable */
 ;
 
-field:
+recordField:
 	| Id EQUALS exp {{name = $1; escape = ref false; value = $3}}
 ;
 
-fieldList:
-	| field {$1::[]}
-	| field COMMA fieldList {$1::$3}
+recordFieldList:
+	| recordField {$1::[]}
+	| recordField COMMA recordFieldList {$1::$3}
 ;
-
-oper:
-	| PLUS {Ast.PlusOp}
-	| MINUS {Ast.MinusOp}
-	| MULT {Ast.MultOp}
-	| DIV {Ast.DivOp}
-	| EQUALS {Ast.EqOp}
-	| LESS_THAN {Ast.LtOp}
-	| GREATER_THAN {Ast.GtOp}
-	| NOT_EQUALS {Ast.NeqOp}
-	| GREATER_THAN_EQUALS {Ast.GtEqOp}
-	| LESS_THAN_EQUALS {Ast.LtEqOp}
-	| AND {Ast.And}
-	| OR {Ast.Or}
