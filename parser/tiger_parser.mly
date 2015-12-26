@@ -6,7 +6,7 @@
 %token AND OR
 %token PLUS MINUS
 %token MULT DIV
-%token <string> Id
+%token <Symbol.t> Id
 %token <int> Int_literal
 %token <string> String_literal
 %token RIGHT_BRACE

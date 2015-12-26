@@ -1,15 +1,15 @@
 open Core.Std
 
-(* module Symbol_map = Map.Make (Symbol) *)
+module Symbol_map = Map.Make (Symbol)
 
-type 'a t = 'a Symbol.Map.t list
+type 'v t = 'v Symbol_map.t list
 
 exception Empty_table
 
-let empty : 'a t = []
+let empty : 'v t = []
 
 let push table assoc_lst =
-	let scope = Symbol.Map.of_alist_exn assoc_lst in
+	let scope = Symbol_map.of_alist_exn assoc_lst in
 	scope::table
 
 let pop_exn = function

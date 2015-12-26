@@ -44,10 +44,3 @@ let compare sym1 sym2 =
 	let int1 = to_int sym1 in
 	let int2 = to_int sym2 in
 	Int.compare int1 int2;;
-
-module Map = Map.Make (struct
-		type t = int * string
-		let t_of_sexp = t_of_sexp
-		let sexp_of_t = sexp_of_t
-		let compare = compare
-	end)

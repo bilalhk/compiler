@@ -50,7 +50,7 @@ rule token = parse
 	| "in" {IN}
 	| "end" {END}
 	| [' ' '\t' '\n'] {token lexbuf}
-	| id as str		{Id str}
+	| id as str		{Id (Symbol.of_string str)}
 	| digits as str 	{Int_literal (int_of_string str)}
 	| eof 	{EOF}
 

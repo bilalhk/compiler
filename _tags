@@ -1,0 +1,4 @@
+<ast> or <parser> or <symbol> or <symbol_table>: include
+true: syntax(camlp4o)
+true: package(core,sexplib.syntax,bin_prot.syntax,comparelib.syntax,fieldslib.syntax,variantslib.syntax)
+true: thread,debug
