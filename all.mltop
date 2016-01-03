@@ -3,3 +3,6 @@ Symbol_table
 Ast
 Tiger_parser
 Tiger_lexer
+Tiger_types
+Type_checker
+Utop_main

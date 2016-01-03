@@ -6,10 +6,12 @@ exception Empty_table
 
 val empty : 'v t
 
-val push : 'v t -> (Symbol.t * 'v) list -> 'v t
+val push_scope : 'v t -> (Symbol.t * 'v) list -> 'v t
 
-val pop_exn : 'v t -> 'v t
+val add : Symbol.t -> 'v -> 'v t -> 'v t
 
-val pop : 'v t -> 'v t
+val pop_scope_exn : 'v t -> 'v t
+
+val pop_scope : 'v t -> 'v t
 
 val find : 'v t -> Symbol.t -> 'v option

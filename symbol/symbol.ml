@@ -3,14 +3,14 @@ open Sexplib.Sexp
 
 type t = int * string
 
-let sym_count = ref 0
+let next_int = ref 0
 
 let table = String.Table.create ()
 
 let create_and_return_symbol str =
-	match Hashtbl.add table str !sym_count with
-	| `Ok -> sym_count := !sym_count + 1;
-			 (!sym_count - 1, str)
+	match Hashtbl.add table str !next_int with
+	| `Ok -> next_int := !next_int + 1;
+			 (!next_int - 1, str)
 	| `Duplicate -> assert false
 
 let int_of_sexp = function

@@ -91,8 +91,8 @@ exp:
 
 	| Id LEFT_BRACE recordFieldList RIGHT_BRACE {Ast.RecordExp($1, $3)} /* Record Creation Expression*/
 	| Id LEFT_BRACE RIGHT_BRACE {Ast.RecordExp($1, [])} /* Empty Record Creation */
-	| IF exp THEN exp ELSE exp {Ast.IfExp({test = $2; then' = $4; else' = Some $6})} /* If-Then-Else Expression */
-	| IF exp THEN exp {Ast.IfExp({test = $2; then' = $4; else' = None})} /* If-Then Expression */
+	| IF exp THEN exp ELSE exp {Ast.IfExp({testExp = $2; thenExp = $4; elseExp = Some $6})} /* If-Then-Else Expression */
+	| IF exp THEN exp {Ast.IfExp({testExp = $2; thenExp = $4; elseExp = None})} /* If-Then Expression */
 	| WHILE exp DO exp {Ast.WhileExp({test = $2; body = $4})} /* While Expression */
 	| FOR Id ASSIGNMENT_OP exp TO exp DO exp {Ast.ForExp({var = $2; escape = ref false; lo = $4; hi = $6; body = $8})} /* For Expression */
 	| BREAK {Ast.BreakExp} /* Break Expression */

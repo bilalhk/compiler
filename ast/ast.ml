@@ -45,7 +45,7 @@ and recordField = {name: symbol; escape: bool ref; value: exp}
 
 and fundec = {name: symbol; params: formalParam list; result: symbol option; body: exp}
 
-and ifExp = {test: exp; then': exp; else': exp option}
+and ifExp = {testExp: exp; thenExp: exp; elseExp: exp option}
 
 and whileExp = {test: exp; body: exp}
 
