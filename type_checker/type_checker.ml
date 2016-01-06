@@ -6,6 +6,18 @@ exception Type_mismatch
 exception Unknown_type
 exception Invalid_application
 
+let initialTenv =
+	let tenv = Symbol_table.push_scope (Symbol_table.empty) [] in
+	let intSym = Symbol.of_string "int" in
+	let strSym = Symbol.of_string "string" in
+	let nilSym = Symbol.of_string "nil" in
+	let tenv1 = Symbol_table.add intSym Int tenv in
+	let tenv2 = Symbol_table.add strSym String tenv1 in
+	let tenv' = Symbol_table.add nilSym Nil tenv2 in
+	tenv'
+
+let initialVenv = Symbol_table.empty
+
 let rec type_of_exp tenv venv = function
 	| LetExp (decs, exp) -> type_of_let tenv venv decs exp
 	| VarExp (var) -> type_of_var tenv venv var
@@ -14,9 +26,9 @@ let rec type_of_exp tenv venv = function
 	| RecordExp (name, fields) -> type_of_record tenv venv name fields
 	| SeqExp (exps) -> type_of_sequence tenv venv exps
 	| AssignExp (var, exp) ->  type_of_assign tenv venv exp var
-	| IfExp (ifExp) -> type_of_ifExp tenv venv ifExp
+	| IfExp (ifExp) -> type_of_if tenv venv ifExp
 	| WhileExp (whileExp) -> type_of_while tenv venv whileExp
-	| ForExp (forExp) -> type_of_forExp tenv venv forExp
+	| ForExp (forExp) -> type_of_for tenv venv forExp
 	| ArrayExp (arrayExp) -> type_of_array tenv venv arrayExp
 	| NilExp -> Nil
 	| IntExp _ -> Int
@@ -24,28 +36,29 @@ let rec type_of_exp tenv venv = function
 	| BreakExp -> Unit
 
 and type_of_let tenv venv decs exp =
-	let tenv' = Symbol_table.push_scope tenv [] in
-	let venv' = Symbol_table.push_scope venv [] in
-	let (tenv'', venv'') = List.fold_left ~f:add_dec_to_env ~init:(tenv', venv') decs in
-	type_of_exp tenv'' venv'' exp
+	let tenvWithEmptyScope = Symbol_table.push_scope tenv [] in
+	let venvWithEmptyScope = Symbol_table.push_scope venv [] in
+	let (tenv', venv') = List.fold_left decs ~f:add_dec_to_env ~init:(tenvWithEmptyScope, venvWithEmptyScope) in
+	type_of_exp tenv' venv' exp
 
 and type_of_var tenv venv = function
-	| SimpleVar (sym) -> type_of_simple_var venv sym
-	| FieldVar (var, sym) -> type_of_fieldVar tenv venv var sym
-	| SubscriptVar (var, exp) -> type_of_subscriptVar tenv venv var exp
+	| SimpleVar (sym) -> base_ty (type_of_simple_var venv sym)
+	| FieldVar (var, sym) -> base_ty (type_of_fieldVar tenv venv var sym)
+	| SubscriptVar (var, exp) -> base_ty (type_of_subscriptVar tenv venv var exp)
 
-and type_of_call tenv venv name paramExps =
+and type_of_call tenv venv funSym paramExps =
 	let type_of_param = type_of_exp tenv venv in
 	let givenParamTyEntries = List.map paramExps ~f:type_of_param in
-	match Symbol_table.find venv name with
-	| FunEntry (expectedParamTyEntries, returnTyEntry) ->
+	match Symbol_table.find venv funSym with
+	| Some (FunEntry (expectedParamTyEntries, returnTyEntry)) ->
 		let () =
 			try
 				List.iter2_exn givenParamTyEntries expectedParamTyEntries ~f:check_equal_types
 			with
 			| Invalid_argument e -> raise Invalid_application in
-		return_ty_entry
-	| VarEntry -> raise Type_mismatch
+		returnTyEntry	
+	| Some (VarEntry _) -> raise Type_mismatch
+	| None -> raise Unknown_type
 
 and type_of_oper tenv venv lExp rExp oper =
 	let lExpTyEntry = type_of_exp tenv venv lExp in
@@ -54,19 +67,23 @@ and type_of_oper tenv venv lExp rExp oper =
 	| Plus | Minus | Mult | Div | And | Or -> type_of_arithmetic_oper lExpTyEntry rExpTyEntry
 	| Eq | Neq | Lt | LtEq | Gt | GtEq -> type_of_comparison_oper lExpTyEntry rExpTyEntry
 
-and type_of_record tenv venv name givenFields =
-	let recordTyEntry = base_ty (Symbol_table.find tenv name) in
-	match recordTyEntry with
-	| Record (expectedNameTyEntryPairs, _) ->
-		List.iter2_exn expectedNameTyEntryPairs givenFields ~f:(fun (expectedName, expectedTyEntry) givenField ->
-			let givenTyEntry = type_of_exp tenv venv givenField.value in
-			check_equal_names expectedName givenField.name;
-			check_equal_types expectedTyEntry givenTyEntry);
-		recordTyEntry
-	| Int | String | Array _ | Nil | Unit | Name _ -> raise Type_mismatch
+and type_of_record tenv venv recSym givenFields =
+	match Symbol_table.find tenv recSym with
+	| Some tyEntry ->
+		let baseTyEntry = base_ty tyEntry in
+		(match baseTyEntry with
+		| Record (expectedSymTyEntryPairs, _) ->
+			let check_equal_field (expectedSym, expectedTyEntry) givenField =
+				let givenTyEntry = type_of_exp tenv venv givenField.value in
+				if (givenField.name <> expectedSym) then raise Unknown_type;
+				check_equal_types expectedTyEntry givenTyEntry in
+			List.iter2_exn expectedSymTyEntryPairs givenFields ~f:check_equal_field;
+			baseTyEntry
+		| _ -> raise Type_mismatch)
+	| None -> raise Unknown_type
 
 and type_of_sequence tenv venv exps =
-	List.fold_left exps Unit ~f:(fun tyEntry exp -> type_of_exp tenv venv exp)
+	List.fold_left exps ~init:Unit ~f:(fun tyEntry exp -> type_of_exp tenv venv exp)
 
 and type_of_assign tenv venv exp var =
 	let expTyEntry = type_of_exp tenv venv exp in
@@ -74,45 +91,46 @@ and type_of_assign tenv venv exp var =
 	check_equal_types varTyEntry expTyEntry;
 	Unit
 
-and type_of_ifExp tenv venv = function
-	| IfExp ifExp -> 
-		let testTyEntry = type_of_exp tenv venv ifExp.testExp in
-		let thenTyEntry = type_of_exp tenv venv ifExp.thenExp in
-		let elseTyEntryOpt = type_of_exp tenv venv ifExp.elseExp in
-		check_equal_types testTyEntry Int;
-		match elseTyEntryOpt with
-		| Some elseTyEntry ->
-			check_equal_types thenTyEntry elseTyEntry;
-			thenTyEntry
-		| None -> thenTyEntry
-	| _ -> raise Type_mismatch
-
-and type_of_while tenv venv (test, body) =
-	let testTyEntry = type_of_exp tenv venv test in
-	let body_ty_entry = type_of_exp tenv venv body in
+and type_of_if tenv venv {testExp; thenExp; elseExp = elseExpOpt} =
+	let testTyEntry = type_of_exp tenv venv testExp in
+	let thenTyEntry = type_of_exp tenv venv thenExp in
 	check_equal_types testTyEntry Int;
-	body_ty_entry
+	match elseExpOpt with
+	| Some elseExp ->
+		let elseTyEntry = type_of_exp tenv venv elseExp in
+		check_equal_types thenTyEntry elseTyEntry;
+		base_ty thenTyEntry
+	| None -> base_ty thenTyEntry
 
-and type_of_forExp tenv venv (sym, lo, hi, body) =
-	let loTyEntry = type_of_exp tenv venv lo in
-	let hiTyEntry = type_of_exp tenv venv hi in
-	check_equal_types loTyEntry Int;
-	check_equal_types hiTyEntry Int;
-	let venv' = Symbol_table.add sym loTyEntry venv in
-	let bodyTyEntry = type_of_exp tenv venv' body in
+and type_of_while tenv venv {test; body} =
+	let testTyEntry = type_of_exp tenv venv test in
+	let bodyTyEntry = type_of_exp tenv venv body in
+	check_equal_types testTyEntry Int;
 	check_equal_types bodyTyEntry Unit;
 	Unit
 
-and type_of_array tenv venv (typ, sizeExp, initExp) =
-	let tyEntry = Symbol_table.find tenv typ in
-	match tyEntry with
-	| Array (arrayTyEntry, _) ->
-		let sizeExpTyEntry = type_of_exp tenv venv sizeExp in
-		let initExpTyEntry = type_of_exp tenv venv initExp in
-		check_equal_types sizeExpTyEntry Int;
-		check_equal_types initExpTyEntry arrayTyEntry;
-		base_ty tyEntry
-	| _ -> raise Type_mismatch
+and type_of_for tenv venv forExp =
+	let loTyEntry = type_of_exp tenv venv forExp.lo in
+	let hiTyEntry = type_of_exp tenv venv forExp.hi in
+	check_equal_types loTyEntry Int;
+	check_equal_types hiTyEntry Int;
+	let venv' = Symbol_table.add forExp.var (VarEntry Int) venv in
+	let bodyTyEntry = type_of_exp tenv venv' forExp.body in
+	check_equal_types bodyTyEntry Unit;
+	Unit
+
+and type_of_array tenv venv {typ; size; init} =
+	match Symbol_table.find tenv typ with
+	| Some tyEntry ->
+		(match base_ty tyEntry with
+		| Array (arrayTyEntry, unique) ->
+			let sizeTyEntry = type_of_exp tenv venv size in
+			let initTyEntry = type_of_exp tenv venv init in
+			check_equal_types sizeTyEntry Int;
+			check_equal_types initTyEntry arrayTyEntry;
+			Array (arrayTyEntry, unique)
+		| _ -> raise Type_mismatch)
+	| None -> raise Unknown_type
 
 and type_of_simple_var venv sym =
 	match Symbol_table.find venv sym with
@@ -123,8 +141,10 @@ and type_of_simple_var venv sym =
 and type_of_fieldVar tenv venv var fieldSym =
 	match type_of_var tenv venv var with
 	| Record (symTyEntryPairs, _) ->
-		let (sym, tyEntry) = List.find symTyEntryPairs ~f:(fun (sym, tyEntry) -> fieldSym = sym) in
-		tyEntry
+		let symTyEntryPairOpt = List.find symTyEntryPairs ~f:(fun (sym, _) -> fieldSym = sym) in
+		(match symTyEntryPairOpt with
+		| Some (_, tyEntry) -> tyEntry
+		| None -> raise Unknown_type)
 	| _ -> raise Type_mismatch
 
 and type_of_subscriptVar tenv venv var exp =
@@ -150,8 +170,8 @@ and type_of_comparison_oper lExpTyEntry rExpTyEntry =
 	| _, _ -> raise Type_mismatch
 
 and add_dec_to_env (tenv, venv) = function
-	| TypeDec (sym, ty) ->
-		 let tenv' = add_type_to_env tenv sym ty in
+	| TypeDec (tySym, ty) ->
+		 let tenv' = add_type_to_env tenv tySym ty in
 		 (tenv', venv)
 	| VarDec (varDec) ->
 		 let venv' = add_var_to_env tenv venv varDec in
@@ -160,64 +180,63 @@ and add_dec_to_env (tenv, venv) = function
 		 let venv' = add_fun_to_env tenv venv fundec in
 		 (tenv, venv')
 
-and add_type_to_env tenv sym = function
-	| NameTy (name) -> add_nameTy_to_env sym name tenv
-	| RecordTy (fields) -> add_recordTy_to_env sym fields tenv
-	| ArrayTy (name) -> add_arrayTy_to_env sym name tenv
+and add_type_to_env tenv tySym = function
+	| NameTy (originalTySym) -> add_nameTy_to_env tySym originalTySym tenv
+	| RecordTy (tyFields) -> add_recordTy_to_env tySym tyFields tenv
+	| ArrayTy (arrayTySym) -> add_arrayTy_to_env tySym arrayTySym tenv
 
-and add_var_to_env tenv venv (name, _, typ, init) =
-	let init_ty = type_of_exp tenv venv init in
-	match typ with
-	| Some sym ->
-		match Symbol_table.find tenv sym with
-		| Some explicit_ty_entry ->
-			if explicit_ty_entry = init_ty
-			then Symbol_table.add name (VarEntry (init_ty)) venv
-			else raise Type_mismatch
-		| None -> raise Unknown_type
-	| None -> Symbol_table.add name (VarEntry (init_ty)) venv
+and add_var_to_env tenv venv varDec =
+	let initTyEntry = type_of_exp tenv venv varDec.init in
+	match varDec.typ with
+	| Some tySym ->
+		(match Symbol_table.find tenv tySym with
+		| Some explicitTyEntry ->
+			check_equal_types initTyEntry explicitTyEntry;
+			Symbol_table.add varDec.name (VarEntry initTyEntry) venv
+		| None -> raise Unknown_type)
+	| None -> Symbol_table.add varDec.name (VarEntry initTyEntry) venv
 
-(* Too big. Too ugly. Refactor *)
-and add_fun_to_env tenv venv (name, params, result, body) =
-	let name_ty_entry_pairs = List.map params ~f:(fun param -> (param.name, Symbol_table.find tenv param.typ)) in
-	let ty_entries = List.map name_ty_entry_pairs ~f:(fun (name, ty_entry) -> ty_entry) in
-		List.iter name_ty_entry_pairs ~f:(fun (_, ty_entry) -> if Option.is_none ty_entry then raise Unknown_type);
-		let add_to_venv env (name, ty_entry) = Symbol_table.add name ty_entry env in
-		let venv' = List.fold_left name_ty_entry_pairs ~init:venv ~f:add_to_venv in
-		let body_ty_entry = type_of_exp tenv venv' body in
-		match result with
-		| Some return_ty ->
-			let return_ty_entry = Symbol_table.find tenv return_ty in
-				check_equal_types return_ty_entry body_ty_entry;
-				let funEntry = FunEntry (ty_entries, return_ty_entry) in
-				Symbol_table.add name funEntry venv
-		| None ->
-			check_equal_types body_ty_entry Unit;
-			let funEntry = FunEntry (ty_entries, body_ty_entry) in
-			Symbol_table.add name funEntry venv
+and add_fun_to_env tenv venv funDec =
+	let paramTyEntries = List.map funDec.params ~f:(fun param -> 
+		match Symbol_table.find tenv param.typ with
+		| Some paramTyEntry -> paramTyEntry
+		| None -> raise Unknown_type) in
+	let venvWithEmptyScope = Symbol_table.push_scope venv [] in
+	let venv' = List.fold2_exn funDec.params paramTyEntries ~init:venvWithEmptyScope ~f:(fun venvAcc param paramTyEntry ->
+		Symbol_table.add param.name (VarEntry paramTyEntry) venvAcc) in
+	let bodyTyEntry = type_of_exp tenv venv' funDec.body in
+	let funEntry = FunEntry (paramTyEntries, bodyTyEntry) in
+	match funDec.result with
+	| Some returnTySym ->
+		(match Symbol_table.find tenv returnTySym with
+		| Some returnTyEntry ->
+			check_equal_types bodyTyEntry returnTyEntry;
+			Symbol_table.add funDec.name funEntry venv
+		| None -> raise Unknown_type)
+	| None -> Symbol_table.add funDec.name funEntry venv
 
-and add_nameTy_to_env sym name tenv =
-	match Symbol_table.find tenv name with
-	| Some ty_entry -> Symbol_table.add sym (Name (name, ref ty_entry)) tenv
-	| None -> Symbol_table.add sym (Name (name, ref None)) tenv
+and add_nameTy_to_env tySym originalTySym tenv =
+	match Symbol_table.find tenv originalTySym with
+	| Some originalTyEntry -> Symbol_table.add tySym (Name (originalTySym, ref (Some originalTyEntry))) tenv
+	| None -> Symbol_table.add tySym (Name (originalTySym, ref None)) tenv
 
-and add_recordTy_to_env sym fields tenv =
-	let field_to_sym_ty_entry_pair field =
-		match Symbol_table.find tenv field.typ with
-		| Some ty_entry -> (field.name, ty_entry)
-		| None -> (field.name, Name (field.typ, ref None)) in
-	let sym_ty_entry_pairs = List.map fields ~f:field_to_sym_ty_entry_pair in
-	let unique = make_unique () in
-	Symbol_table.add sym (Record (sym_ty_entry_pairs, unique)) tenv
+and add_recordTy_to_env tySym tyFields tenv =
+	let tyField_to_symTyEntryPair (tyField : recordTyField) =
+		match Symbol_table.find tenv tyField.typ with
+		| Some fieldTyEntry -> (tyField.name, fieldTyEntry)
+		| None -> (tyField.name, Name (tyField.typ, ref None)) in
+	let symTyEntryPairs = List.map tyFields ~f:tyField_to_symTyEntryPair in
+	let recordTyEntry = Record (symTyEntryPairs, make_unique ()) in
+	Symbol_table.add tySym recordTyEntry tenv
 
-and add_arrayTy_to_env sym name tenv =
-	match Symbol_table.find tenv name with
-	| Some ty_entry ->
-		let array_entry = Array (ty_entry, make_unique()) in
-		Symbol_table.add sym array_entry tenv
+and add_arrayTy_to_env tySym arrayTySym tenv =
+	match Symbol_table.find tenv arrayTySym with
+	| Some tyEntry ->
+		let arrayTyEntry = Array (tyEntry, make_unique()) in
+		Symbol_table.add tySym arrayTyEntry tenv
 	| None ->
-		let array_entry = Array (Name (name, ref None), make_unique ()) in
-		Symbol_table.add sym array_entry tenv
+		let arrayTyEntry = Array (Name (arrayTySym, ref None), make_unique ()) in
+		Symbol_table.add tySym arrayTyEntry tenv
 
 and check_equal_types ty1 ty2 =
 	let base_ty1 = base_ty ty1 in
@@ -229,11 +248,11 @@ and base_ty = function
 	| String -> String
 	| Nil -> Nil
 	| Unit -> Unit
-	| Array (ty_entry, unique) -> (base_ty ty_entry, unique)
+	| Array (ty_entry, unique) -> Array (base_ty ty_entry, unique)
 	| Name (name, ty_entry_ref) ->
-		match !ty_entry_ref with
+		(match !ty_entry_ref with
 		| Some ty_entry -> base_ty ty_entry
-		| None -> Name (name, ty_entry_ref)
+		| None -> Name (name, ty_entry_ref))
 	| Record (name_ty_pairs, unique) ->
 		let base_name_ty_pairs = List.map name_ty_pairs ~f:(fun (name, ty_entry) -> (name, base_ty ty_entry)) in
 		Record (base_name_ty_pairs, unique)
