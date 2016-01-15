@@ -15,3 +15,5 @@ val pop_scope_exn : 'v t -> 'v t
 val pop_scope : 'v t -> 'v t
 
 val find : 'v t -> Symbol.t -> 'v option
+
+val in_current_scope : Symbol.t -> 'v t -> bool

@@ -31,3 +31,10 @@ let find table sym =
 	match relevant_scope with
 	| Some scope -> Map.find scope sym
 	| None -> None
+
+let in_current_scope key = function
+	| curr_scope::_ ->
+		match Map.find curr_scope key with
+		| Some _ -> true
+		| None -> false
+	| [] -> false
