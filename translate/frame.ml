@@ -6,6 +6,12 @@ and access =
 
 let wordSize = 4
 
+let fp = Temp.new_reg ()
+
+let sp = Temp.new_reg ()
+
+let staticLinkOffset = wordSize
+
 let new_frame symEscapePairs =
 	let update_pair_acc (pairs, inFrameCount) (sym, escape) =
 		if escape then
