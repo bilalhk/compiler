@@ -1,3 +1,3 @@
-<ast> or <parser> or <symbol> or <symbol_table> or <type_checker> : include
+<ast> or <parser> or <symbol> or <symbol_table> or <type_checker> or <translate> : include
 true: package(core), package(sexplib), package(utop)
 true: thread

@@ -5,4 +5,9 @@ Tiger_parser
 Tiger_lexer
 Tiger_types
 Type_checker
+Temp
+Tree
+Frame
+Level
+Translate
 Utop_main

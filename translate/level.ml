@@ -1,19 +1,21 @@
-type t = {name: Symbol.t; parent: t option; frame: Frame.t; label: Temp.label; levelId: int}
+module F = Frame
 
-type access = Frame.access * t
+type t = {name: Symbol.t; parent: t option; frame: F.t; label: Temp.label; levelId: int}
 
-let nextLevel = ref 0
+type access = F.access * t
 
-let mainLevel : t = {name: Symbol.of_string "_main", parent: None, frame: [], label: Temp.new_label ()}
+let mainLevel = {name = Symbol.of_string "_main"; parent = None; frame = F.new_frame []; label = Temp.new_label (); levelId = 0}
+
+let nextLevel = ref 1
 
 let new_level name parent symEscapePairs =
-	let frame = Frame.new_frame symEscapePairs in
+	let frame = F.new_frame symEscapePairs in
 	let label = Temp.new_label () in
-	nextLevel := !nextLevel + 1
+	nextLevel := !nextLevel + 1;
 	{name; parent = Some parent; frame; label; levelId = !nextLevel - 1}
 
 let alloc_local level escape : access =
-	let access = Frame.alloc_local level.frame escape in
+	let access = F.alloc_local level.frame escape in
 	(access, level)
 
 let equal level1 level2 =

@@ -34,7 +34,7 @@ let find table sym =
 
 let in_current_scope key = function
 	| curr_scope::_ ->
-		match Map.find curr_scope key with
+		(match Map.find curr_scope key with
 		| Some _ -> true
-		| None -> false
+		| None -> false)
 	| [] -> false
