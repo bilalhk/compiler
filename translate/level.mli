@@ -7,3 +7,5 @@ val mainLevel : t
 val new_level : Symbol.t -> t -> (Symbol.t * bool) list -> t
 
 val alloc_local : t -> bool -> access
+
+val equal : t -> t -> bool

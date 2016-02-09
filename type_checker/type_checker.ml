@@ -259,11 +259,11 @@ and add_arrayTy_to_env tySym arrayTySym tenv =
 		St.add tySym arrayTyEntry tenv
 
 and add_params_to_env tenv venv (params : formalParam list) =
-	let symTyEntryPairs = List.map params ~f:(fun param ->
+	let symVarEntryPairs = List.map params ~f:(fun param ->
 		match St.find tenv param.typ with
-		| Some tyEntry -> (param.name, tyEntry)
+		| Some tyEntry -> (param.name, VarEntry tyEntry)
 		| None -> raise Unknown_type) in
-	St.push_scope venv symTyEntryPairs
+	St.push_scope venv symVarEntryPairs
 
 and check_equal_types ty1 ty2 =
 	let base_ty1 = base_ty ty1 in

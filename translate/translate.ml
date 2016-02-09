@@ -1,4 +1,5 @@
 module T = Tree
+module Tt = Tiger_types
 module Tc = Type_checker
 module L = Level
 module St = Symbol_table
@@ -22,14 +23,6 @@ type fragment =
 let fragments = ref []
 
 let initialTransEnv = St.empty
-
-let rec index_of_sym sym = function
-	| (fieldSym, _)::tl ->
-		if fieldSym = sym then
-			0
-		else
-			1 + (index_of_sym sym tl)
-	| [] -> assert false
 
 let unEx = function
 	| Ex exp -> exp
@@ -70,7 +63,7 @@ let rec translate_prog exp =
 
 and translate_exp level envs breakLabel = function
 	| VarExp var -> translate_var level envs breakLabel var
-	| IntExp num -> T.Const num
+	| IntExp num -> translate_int num
 	| StringExp str -> assert false (* Will handle later *)
 	| CallExp (funSym, args) -> translate_call_exp level envs funSym args breakLabel
 	| OpExp (lExp, oper, rExp) -> translate_op_exp level envs lExp rExp oper breakLabel
@@ -85,6 +78,9 @@ and translate_exp level envs breakLabel = function
 	| BreakExp -> translate_break_exp breakLabel
 	| NilExp -> translate_nil_exp ()
 
+and translate_int num =
+	Ex (T.Const num)
+
 and translate_var level (transEnv, typeEnv, varEnv) breakLabel = function
 	| SimpleVar sym -> translate_simpleVar level transEnv sym
 	| FieldVar (var, sym) -> translate_fieldVar level (transEnv, typeEnv, varEnv) var sym breakLabel
@@ -92,16 +88,16 @@ and translate_var level (transEnv, typeEnv, varEnv) breakLabel = function
 
 and translate_call_exp level envs funSym args breakLabel =
 	let translatedArgs = List.map args ~f:(fun argExp -> unEx (translate_exp level envs breakLabel argExp)) in
-	let fragment = List.find fragments ~f:(fun frag ->
+	let fragment = List.find !fragments ~f:(fun frag ->
 		match frag with
 		| Proc (_, level) -> level.name = funSym
 		| String _ -> false) in
 	match fragment with
-	| Proc (stm, funLevel) ->
-		let +static_link_address = create_static_link funLevel level in
+	| Some (Proc (stm, funLevel)) ->
+		let static_link_address = create_static_link funLevel level in
 		let augmentedArgs = static_link_address::translatedArgs in
 		Ex (T.Call (T.Name funLevel.label, augmentedArgs))
-	| String _ -> assert false
+	| Some (String _) | None -> assert false
 
 and translate_record_exp level envs breakLabel recSym fields =
 	let fieldValueExps = List.map fields ~f:(fun field -> field.value) in
@@ -115,7 +111,7 @@ and translate_array_exp level envs breakLabel {typ = tySym; size = sizeExp; init
 	Ex (F.external_call "initArray" translatedArgs)
 
 and create_static_link funLevel callerLevel =
-	let link_to_def_level defLevel currentLevel currentFpAddress =
+	let rec link_to_def_level defLevel currentLevel currentFpAddress =
 		if L.equal currentLevel defLevel then
 			currentFpAddress
 		else
@@ -167,9 +163,9 @@ and translate_if_exp level envs {testExp; thenExp; elseExp = elseExpOpt} breakLa
 		Ex translatedIfExp
 	| None ->
 		let falseBranch = T.Exp (T.Const 0) in
-		let translatedIfExp = T.Seq (T.Seq (conditional trueLabel falseLabel,
-											T.Seq (trueBranch,
-												   T.Seq (falseBranch, T.Label joinLabel)))) in
+		let translatedIfExp = T.Seq (conditional trueLabel falseLabel,
+							  		 T.Seq (trueBranch,
+											T.Seq (falseBranch, T.Label joinLabel))) in
 		Nx translatedIfExp
 
 and translate_while_exp level envs {test = testExp; body = bodyExp} breakLabel =
@@ -185,7 +181,7 @@ and translate_while_exp level envs {test = testExp; body = bodyExp} breakLabel =
 	Nx translatedWhileExp
 
 and translate_break_exp = function
-	| Some label -> Nx (T.Jump (T.Name label), [label])
+	| Some label -> Nx (T.Jump (T.Name label, [label]))
 	| None -> assert false
 
 and translate_for_exp level envs breakLabel {var; escape; lo = loExp; hi = hiExp; body = bodyExp} =
@@ -196,47 +192,48 @@ and translate_for_exp level envs breakLabel {var; escape; lo = loExp; hi = hiExp
 	let translatedBodyExp = unNx (translate_exp level envs breakLabel bodyExp) in
 	let translatedLoExp = unEx (translate_exp level envs breakLabel loExp) in
 	let translatedHiExp = unEx (translate_exp level envs breakLabel hiExp) in
-	let conditionalJump = T.CJump (T.LE, loReg, translatedHiExp, bodyLabel, doneLabel) in
+	let conditionalJump = T.Seq (T.Label testLabel, T.CJump (T.LE, loReg, translatedHiExp, bodyLabel, doneLabel)) in
 	let indexInitialization = T.Move (loReg, translatedLoExp) in
-	let incrementIndex = T.Move (loReg, T.Binop (T.Plus, loReg, T.Const 1)) in
-	let bodyBranch = T.Label (bodyLabel, translatedBodyExp) in
+	let incrementIndex = T.Move (loReg, T.Binop (T.PLUS, loReg, T.Const 1)) in
+	let bodyBranch = T.Seq (T.Label bodyLabel, translatedBodyExp) in
 	let translatedForExp = T.Seq (indexInitialization,
 								  T.Seq (conditionalJump,
 								  		 T.Seq (bodyBranch,
 								  		 		T.Seq (incrementIndex,
-								  		 			   T.Seq (conditionalJump, T.Label doneLabel))))) in
+								  		 			   T.Seq (T.Jump (T.Name testLabel, [testLabel]),
+								  		 			   		  T.Label doneLabel))))) in
 	Nx translatedForExp
 
 and translate_let_exp level (transEnv, typeEnv, varEnv) breakLabel decs exp =
 	let (_, typeEnv', varEnv') = Tc.type_of_exp typeEnv varEnv exp in
-	let translate_dec (transEnvAccum, translatedDecsAccum) = function
-		| FunctionDec funDec -> translate_fun_dec level (transEnvAccum, typeEnv', varEnv') translatedDecsAccum breakLabel funDec
-		| VarDec varDec -> translate_var_dec (transEnvAccum, typeEnv', varEnv') translatedDecsAccum breakLabel varDec
-		| TypeDec _ -> transEnv in
-	let (transEnv', translatedDecs) = List.fold_left decs ~init:(St.push_scope transEnv [], None) ~f:translate_dec in
+	let translate_dec (transEnv, translatedDecs) = function
+		| Ast.FunctionDec funDec -> translate_fun_dec level (transEnv, typeEnv', varEnv') translatedDecs breakLabel funDec
+		| VarDec varDec -> translate_var_dec level (transEnv, typeEnv', varEnv') translatedDecs breakLabel varDec
+		| TypeDec _ -> (transEnv, translatedDecs) in
+	let (transEnv', translatedDecs) = List.fold_left decs ~init:(St.push_scope transEnv [], T.Exp (T.Const 0)) ~f:translate_dec in
 	let translatedExp = unEx (translate_exp level (transEnv', typeEnv', varEnv') breakLabel exp) in
 	Ex (T.ESeq (translatedDecs, translatedExp))
 
 and translate_nil_exp () =
 	Ex (T.Const 0)
 
-and translate_fun_dec level (transEnv, typeEnv, varEnv) translatedDecsAccum breakLabel {name; params; result; body = bodyExp} =
+and translate_fun_dec level (transEnv, typeEnv, varEnv) translatedDecs breakLabel {name; params; result; body = bodyExp} =
 	let symEscapePairs = List.map params ~f:(fun param -> (param.name, !(param.escape))) in
 	let funLevel = L.new_level name level symEscapePairs in
-	let symTransEntryPair = List.map funLevel.frame.formals ~f:(fun (sym, frameAccess) -> (sym, VarEntry (frameAccess, funLevel))) in
-	let funTransEnv = St.push_scope transEnv symTransEntryPair in
+	let symTransEntryPairs = List.map funLevel.frame.formals ~f:(fun (sym, frameAccess) -> (sym, VarEntry (frameAccess, funLevel))) in
+	let funTransEnv = St.push_scope transEnv symTransEntryPairs in
 	let funVenv = Tc.add_params_to_env typeEnv varEnv params in
 	let translatedBodyExp = translate_exp level (funTransEnv, typeEnv, funVenv) breakLabel bodyExp in
-	let transEnv' = St.add name funLevel transEnv in
+	let transEnv' = St.add name (FunEntry funLevel) transEnv in
 	let fragment = Proc (unNx translatedBodyExp, funLevel) in
-	fragments = fragment::!fragments;
-	(transEnv', translatedDecsAccum)
+	fragments := fragment::!fragments;
+	(transEnv', translatedDecs)
 
 and translate_var_dec level envs translatedDecs breakLabel {name; escape; typ; init = initExp} =
 	let (transEnv, typeEnv, varEnv) = envs in
 	let translatedInitExp = unEx (translate_exp level envs breakLabel initExp) in
 	let (frameAccess, varLevel) = L.alloc_local level !escape in
-	let transEnv' = St.add name (frameAccess, varLevel) transEnv in
+	let transEnv' = St.add name (VarEntry (frameAccess, varLevel)) transEnv in
 	match frameAccess with
 	| InFrame offset ->
 		let varExp = mem_node_from_offset varLevel varLevel offset in
@@ -273,9 +270,9 @@ and translate_boolean_op lExp rExp op =
 	| Or -> Cx (fun tLabel fLabel -> T.Seq (lConditional tempLabel fLabel,
 											T.Seq (T.Label tempLabel, rConditional tLabel fLabel)))
 
-and translate_simpleVar level transEnv sym =
+and translate_simpleVar refLevel transEnv sym =
 	match St.find transEnv sym with
-	| Some (VarEntry (F.InFrame offset, decLevel)) -> Ex (mem_node_from_offset decLevel level offset)
+	| Some (VarEntry (F.InFrame offset, decLevel)) -> Ex (mem_node_from_offset decLevel refLevel offset)
 	| Some (VarEntry (F.InReg reg, decLevel)) ->
 		assert (L.equal refLevel decLevel);
 		Ex (T.Temp reg)
@@ -284,7 +281,7 @@ and translate_simpleVar level transEnv sym =
 
 and translate_fieldVar level (transEnv, typeEnv, varEnv) var sym breakLabel =
 	let calculate_field_offset sym = function
-		| Record (symTyEntryPairs, _) -> T.Const (index_of_sym sym symTyEntryPairs)
+		| Tt.Record (symTyEntryPairs, _) -> T.Const (index_of_sym sym symTyEntryPairs)
 		| Array _ | Int | String | Nil | Unit | Name _ -> assert false in
 	let (tyEntry, _, _) = Tc.type_of_var typeEnv varEnv var in
 	let baseAddress = unEx (translate_var level (transEnv, typeEnv, varEnv) breakLabel var) in
@@ -311,3 +308,11 @@ and mem_node_from_offset decLevel refLevel offset =
 			| None -> assert false in
 	let fpAddress = create_fp_address decLevel refLevel (T.Temp F.fp) in 
 	T.Mem (T.Binop (T.PLUS, fpAddress, (T.Const offset)))
+
+and index_of_sym sym = function
+	| (fieldSym, _)::tl ->
+		if fieldSym = sym then
+			0
+		else
+			1 + (index_of_sym sym tl)
+	| [] -> assert false

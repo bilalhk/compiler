@@ -1,12 +1,16 @@
-type t
+type access =
+	| InFrame of int
+	| InReg of Temp.reg
 
-type access
+type t = {formals: (Symbol.t * access) list; localCount: int ref}
 
 val fp : Temp.reg
 
 val sp: Temp.reg
 
 val staticLinkOffset : int
+
+val wordSize : int
 
 val new_frame : (Symbol.t * bool) list -> t
 

@@ -1,10 +1,10 @@
-type reg
+type reg = int
 
 val new_reg : unit -> reg
 
 val reg_to_string : reg -> string
 
-type label
+type label = Symbol.t
 
 val new_label : unit -> label
 
