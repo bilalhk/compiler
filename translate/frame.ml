@@ -43,4 +43,3 @@ let alloc_local frame escape =
 let external_call functionName args =
 	let label = T.Name (Temp.named_label functionName) in
 	T.Call (label, args)
-	

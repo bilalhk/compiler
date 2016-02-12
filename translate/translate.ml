@@ -210,9 +210,11 @@ and translate_let_exp level (transEnv, typeEnv, varEnv) breakLabel decs exp =
 		| Ast.FunctionDec funDec -> translate_fun_dec level (transEnv, typeEnv', varEnv') translatedDecs breakLabel funDec
 		| VarDec varDec -> translate_var_dec level (transEnv, typeEnv', varEnv') translatedDecs breakLabel varDec
 		| TypeDec _ -> (transEnv, translatedDecs) in
-	let (transEnv', translatedDecs) = List.fold_left decs ~init:(St.push_scope transEnv [], T.Exp (T.Const 0)) ~f:translate_dec in
+	let (transEnv', translatedDecs) = List.fold_left decs ~init:(St.push_scope transEnv [], None) ~f:translate_dec in
 	let translatedExp = unEx (translate_exp level (transEnv', typeEnv', varEnv') breakLabel exp) in
-	Ex (T.ESeq (translatedDecs, translatedExp))
+	match translatedDecs with
+	| Some decs -> Ex (T.ESeq (decs, translatedExp))
+	| None -> Ex translatedExp
 
 and translate_nil_exp () =
 	Ex (T.Const 0)
@@ -223,7 +225,7 @@ and translate_fun_dec level (transEnv, typeEnv, varEnv) translatedDecs breakLabe
 	let symTransEntryPairs = List.map funLevel.frame.formals ~f:(fun (sym, frameAccess) -> (sym, VarEntry (frameAccess, funLevel))) in
 	let funTransEnv = St.push_scope transEnv symTransEntryPairs in
 	let funVenv = Tc.add_params_to_env typeEnv varEnv params in
-	let translatedBodyExp = translate_exp level (funTransEnv, typeEnv, funVenv) breakLabel bodyExp in
+	let translatedBodyExp = translate_exp funLevel (funTransEnv, typeEnv, funVenv) breakLabel bodyExp in
 	let transEnv' = St.add name (FunEntry funLevel) transEnv in
 	let fragment = Proc (unNx translatedBodyExp, funLevel) in
 	fragments := fragment::!fragments;
@@ -234,15 +236,13 @@ and translate_var_dec level envs translatedDecs breakLabel {name; escape; typ; i
 	let translatedInitExp = unEx (translate_exp level envs breakLabel initExp) in
 	let (frameAccess, varLevel) = L.alloc_local level !escape in
 	let transEnv' = St.add name (VarEntry (frameAccess, varLevel)) transEnv in
-	match frameAccess with
-	| InFrame offset ->
-		let varExp = mem_node_from_offset varLevel varLevel offset in
-		let translatedDec = T.Move (varExp, translatedInitExp) in
-		(transEnv', T.Seq (translatedDecs, translatedDec))
-	| InReg reg ->
-		let varExp = T.Temp reg in
-		let translatedDec = T.Move (varExp, translatedInitExp) in
-		(transEnv', T.Seq (translatedDecs, translatedDec)) 
+	let varExp = match frameAccess with
+				 | InFrame offset -> mem_node_from_offset varLevel varLevel offset
+				 | InReg reg -> T.Temp reg in
+	let translatedDec = T.Move (varExp, translatedInitExp) in
+	match translatedDecs with
+	| Some decs -> (transEnv', Some (T.Seq (decs, translatedDec)))
+	| None -> (transEnv', Some translatedDec)
 
 and translate_arithmetic_op lExp rExp op =
 	match op with
