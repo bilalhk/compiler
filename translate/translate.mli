@@ -7,6 +7,6 @@ type exp =
 	| Nx of Tree.stm
 	| Cx of (Temp.label -> Temp.label -> Tree.stm)
 
-val translate_prog : Ast.exp -> exp
+val translate_prog : Ast.exp -> fragment list
 
 val fragments : (fragment list) ref

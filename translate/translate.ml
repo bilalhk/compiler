@@ -59,7 +59,10 @@ let unCx = function
 
 let rec translate_prog exp =
 	let (_, typeEnv, varEnv) = Tc.type_of_prog exp in
-	translate_exp L.mainLevel (initialTransEnv, typeEnv, varEnv) None exp
+	let translatedMain = translate_exp L.mainLevel (initialTransEnv, typeEnv, varEnv) None exp in
+	let mainFragment = Proc (unNx translatedMain, L.mainLevel) in
+	fragments := mainFragment::!fragments;
+	!fragments
 
 and translate_exp level envs breakLabel = function
 	| VarExp var -> translate_var level envs breakLabel var
