@@ -2,7 +2,17 @@ module T = Tree
 
 open Core.Std
 
-let rec do_stm = function
+let rec linearize stm =
+	let rec linear stm linearizedStms =
+		match stm with
+		| T.Seq (stm1, stm2) -> linear stm1 (linear stm2 linearizedStms)
+		| _ -> stm::linearizedStms in
+	let eseqLessStm = do_stm stm in 
+	let linearizedStms = linear eseqLessStm [] in
+	let cleanedStms = List.filter linearizedStms ~f:(function T.Exp (T.Const 0) -> false | _ -> true) in
+	cleanedStms
+
+and do_stm = function
 	| T.Jump (exp, labels) -> reorder_stm [exp] (function [exp'] -> T.Jump (exp', labels) | _ -> assert false)
 	| T.CJump (op, lExp, rExp, tLabel, fLabel) ->
 		reorder_stm [lExp; rExp] (function [lExp'; rExp'] -> T.CJump (op, lExp', rExp', tLabel, fLabel)	| _ -> assert false)
@@ -44,7 +54,7 @@ and reorder_stm exps build =
 	T.Seq (stm, build exps')
 
 and reorder_exp exps build =
-	let (stm, exps') = reorder exps in
+	let (stm, exps') = reorder exps in <--------- START HERE!!!!!!!!!!!!!!!!!!!!!!!!!
 	(stm, build exps')
 
 and assign_temp_for_call exp =
