@@ -12,6 +12,51 @@ let rec linearize stm =
 	let cleanedStms = List.filter linearizedStms ~f:(function T.Exp (T.Const 0) -> false | _ -> true) in
 	cleanedStms
 
+and basic_blocks stms =
+	let firstStm::restStms = stms in
+	let initialBlock = label_initial_block firstStm in	
+	let (lastBlock, previousBlocks) = List.fold_left restStms ~init:(initialBlock, []) ~f:add_to_block in
+	let doneLabel = Temp.new_label () in
+	let lastBlockWithJump = lastBlock @ [(T.Jump (T.Name doneLabel, [doneLabel]))] in
+	let blocks = previousBlocks @ [lastBlockWithJump] in
+	let firstBlock::restBlocks = blocks in
+	let borderedBlocks = List.fold_left restBlocks ~init:[firstBlock] ~f:border_block in
+	(borderedBlocks, doneLabel)
+
+and label_initial_block stm =
+	match stm with
+	| T.Label _ -> [stm]
+	| _ ->
+		let labelStm = T.Label (Temp.new_label ()) in
+		[labelStm; stm]
+
+and add_to_block (currentBlock, previousBlocks) stm =
+	match stm with
+	| T.CJump _ | T.Jump _ ->
+		let finishedBlock = currentBlock @ [stm] in
+		([], previousBlocks @ [finishedBlock])
+	| T.Label _ ->
+		let newBlock = [stm] in
+		(newBlock, previousBlocks @ [currentBlock])
+	| _ -> (currentBlock @ [stm], previousBlocks)
+
+and border_block previousBlocks currentBlock =
+	let currentFirstStm::_ = currentBlock in
+	let previousBlock = List.last_exn previousBlocks in
+	let previousLastStm = List.last_exn previousBlock in
+	match previousLastStm, currentFirstStm with
+	| T.Jump _, T.Label _ | T.CJump _, T.Label _ -> previousBlocks @ [currentBlock]
+	| T.Jump _, _  | T.CJump _, _ ->
+		let labelStm = T.Label (Temp.new_label ()) in
+		let labeledCurrentBlock = labelStm::currentBlock in
+		previousBlocks @ [labeledCurrentBlock]
+	| _, T.Label label ->
+		let jumpStm = T.Jump (T.Name label, [label]) in
+		let previousBlockWithJump = previousBlock @ [jumpStm] in
+		let _::reversedLastLessPreviousBlocks = List.rev previousBlocks in
+		let lastLessPreviousBlocks = List.rev reversedLastLessPreviousBlocks in
+		(lastLessPreviousBlocks @ [previousBlockWithJump]) @ [currentBlock]
+
 and do_stm = function
 	| T.Jump (exp, labels) -> reorder_stm [exp] (function [exp'] -> T.Jump (exp', labels) | _ -> assert false)
 	| T.CJump (op, lExp, rExp, tLabel, fLabel) ->
@@ -54,7 +99,7 @@ and reorder_stm exps build =
 	T.Seq (stm, build exps')
 
 and reorder_exp exps build =
-	let (stm, exps') = reorder exps in <--------- START HERE!!!!!!!!!!!!!!!!!!!!!!!!!
+	let (stm, exps') = reorder exps in
 	(stm, build exps')
 
 and assign_temp_for_call exp =
