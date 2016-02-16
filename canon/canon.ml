@@ -23,6 +23,45 @@ and basic_blocks stms =
 	let borderedBlocks = List.fold_left restBlocks ~init:[firstBlock] ~f:border_block in
 	(borderedBlocks, doneLabel)
 
+and trace_schedule blocks doneLable =
+	let initialTrace::remainingBlocks = blocks in
+	build_trace doneLabel initialTrace [] remainingBlocks
+
+(* Precondition: currentTrace is not empty. *)
+and build_trace doneLabel currentTrace completedTraces remainingBlocks =
+	match remainingBlocks with
+	| nextBlock::remainingBlocks ->
+		match List.last_exn currentTrace with
+		| T.Jump (_, [doneLabel]) -> build_trace_done_jump doneLabel currentTrace completedTraces remainingBlocks
+		| T.Jump (_, labels) -> build_trace_jump doneLabel currentTrace completedTraces remainingBlocks labels
+		| T.CJump (_, _, _, tLabel, fLabel) -> build_trace_jump currentTrace completedTraces remainingBlocks [fLabel]
+	| [] -> currentTrace::completedTraces
+
+(* Precondition: unnamed last argument is not empty *)
+and build_trace_done_jump doneLabel currentTrace completedTraces =
+	| nextBlock::remainingBlocks ->
+		build_trace doneLabel [nextBlock] (currentTrace::completedTraces) remainingBlocks
+	| [] -> assert false
+
+(* Precondition: remainingBlocks is not empty. *)
+and build_trace_jump doneLabel currentTrace completedTraces remainingBlocks labels =
+	let is_next_block ((T.Label label)::_) =
+		List.mem ~equal:Temp.equal_labels labels label in
+	let filteredLabels = List.filter labels ~f:(fun label -> not (Temp.equal_labels doneLabel label)) in
+	let nextBlock = List.find remainingBlocks ~f:is_next_block in
+	match nextBlock with
+	| Some nextBlock ->
+		let (T.Label nextLabel)::stms = nextBlock in
+		let not_next_block ((T.Label label)::_) =
+			not (Temp.equal_labels label nextLabel) in
+		let filteredRemainingBlocks = List.filter remainingBlocks ~f:not_next_block in
+		let newCurrentTrace = currentTrace @ [nextBlock] in
+		build_trace doneLabel newCurrentTrace completedTraces filteredRemainingBlocks
+	| None ->
+		let newCompletedTraces = currentTrace::completedTraces in
+		let newCurrentTrace::newRemainingBlocks = remainingBlocks in
+		build_trace doneLabel newCurrentTrace newCompletedTraces newRemainingBlocks
+
 and label_initial_block stm =
 	match stm with
 	| T.Label _ -> [stm]

@@ -24,3 +24,6 @@ let new_label () : label =
 
 let named_label name =
 	Symbol.of_string name
+
+let equal_labels label1 label2 =
+	(Symbol.compare label1 label2) = 0

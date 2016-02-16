@@ -9,3 +9,5 @@ type label = Symbol.t
 val new_label : unit -> label
 
 val named_label : string -> label
+
+val equal_labels : label -> label -> bool
