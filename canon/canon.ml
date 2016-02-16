@@ -25,7 +25,44 @@ and basic_blocks stms =
 
 and trace_schedule blocks doneLabel =
 	let initialTrace::remainingBlocks = blocks in
-	build_trace doneLabel initialTrace [] remainingBlocks
+	let reversedTraces = build_trace doneLabel initialTrace [] remainingBlocks in
+	List.rev reversedTraces
+
+(* Flattens traces and makes sure a CJump is always followed by its false label. Also removes a Jump if immediately followed by its label. *)
+and fix_stms traces =
+	let firstStm::remainingStms = List.fold_left traces ~init:[] ~f:(fun flattenedTraces trace -> flattenedTraces @ trace) in
+	let fixedStms = List.fold_left remainingStms ~init:[firstStm] ~f:fix_stm in
+	fixedStms
+
+(* Precondition: previousStms is not empty. *)
+and fix_stm previousStms currentStm =
+	let previousStm = List.last_exn previousStms in
+	match previousStm, currentStm with
+	| T.CJump _, _-> fix_CJump previousStms previousStm currentStm
+	| T.Jump (T.Name jumpLabel, _), T.Label label ->
+		if Temp.equal_labels jumpLabel label then
+			let lastLessPreviousStms = remove_last_elm previousStms in
+			lastLessPreviousStms @ [currentStm]
+		else
+			previousStms @ [currentStm]
+	| _ -> previousStms @ [currentStm]
+
+and fix_CJump previousStms cJumpStm currentStm =
+	let lastLessPreviousStms = remove_last_elm previousStms in
+	match cJumpStm, currentStm with
+	| T.CJump (op, lExp, rExp, tLabel, fLabel), T.Label label ->
+		if (Temp.equal_labels fLabel label) then
+			previousStms @ [currentStm]
+		else if (Temp.equal_labels tLabel label) then
+			let negatedCJumpStm = negateCJumpStm cJumpStm in
+			(lastLessPreviousStms @ [negatedCJumpStm]) @ [currentStm]
+		else
+			let fLabel' = Temp.new_label () in
+			let cJumpStm' = T.CJump (op, lExp, rExp, tLabel, fLabel') in
+			let labelStm = T.Label fLabel' in
+			let jumpStm = T.Jump (T.Name fLabel', [fLabel']) in
+			(((lastLessPreviousStms @ [cJumpStm']) @ [labelStm]) @ [jumpStm]) @ [currentStm]
+	| _, _ -> assert false
 
 (* Precondition: currentTrace is not empty. *)
 and build_trace doneLabel currentTrace completedTraces remainingBlocks =
@@ -177,3 +214,19 @@ and commute stm exp =
 	| _, T.Name _ -> true
 	| _, T.Const _ -> true
 	| _, _ -> false
+
+and remove_last_elm lst =
+	let _::reversedListWithoutLastElm = List.rev lst in
+	List.rev reversedListWithoutLastElm
+
+and negateCJumpStm = function
+	| T.CJump (T.EQ, lExp, rExp, tLabel, fLabel) -> T.CJump (T.NE, lExp, rExp, fLabel, tLabel)
+	| T.CJump (T.NE, lExp, rExp, tLabel, fLabel) -> T.CJump (T.EQ, lExp, rExp, fLabel, tLabel)
+	| T.CJump (T.LT, lExp, rExp, tLabel, fLabel) -> T.CJump (T.GE, lExp, rExp, fLabel, tLabel)
+	| T.CJump (T.GT, lExp, rExp, tLabel, fLabel) -> T.CJump (T.LE, lExp, rExp, fLabel, tLabel)
+	| T.CJump (T.LE, lExp, rExp, tLabel, fLabel) -> T.CJump (T.GT, lExp, rExp, fLabel, tLabel)
+	| T.CJump (T.GE, lExp, rExp, tLabel, fLabel) -> T.CJump (T.LT, lExp, rExp, fLabel, tLabel)
+	| T.CJump (T.ULT, lExp, rExp, tLabel, fLabel) -> T.CJump (T.UGE, lExp, rExp, fLabel, tLabel)
+	| T.CJump (T.ULE, lExp, rExp, tLabel, fLabel) -> T.CJump (T.UGT, lExp, rExp, fLabel, tLabel)
+	| T.CJump (T.UGT, lExp, rExp, tLabel, fLabel) -> T.CJump (T.ULE, lExp, rExp, fLabel, tLabel)
+	| T.CJump (T.UGE, lExp, rExp, tLabel, fLabel) -> T.CJump (T.ULT, lExp, rExp, fLabel, tLabel)
